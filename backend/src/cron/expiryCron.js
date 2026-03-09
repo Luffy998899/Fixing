@@ -1,26 +1,12 @@
 import cron from "node-cron"
 import { query, getOne, runSync, transaction } from "../config/db.js"
+import { db } from "../config/db.js"
 import { addDays, getDurationDays } from "../utils/durations.js"
+import { getPlan, getRenewalPrice, getBalanceField } from "../utils/planHelpers.js"
 import { pterodactyl } from "../services/pterodactyl.js"
 
-async function getPlan(planType, planId) {
-  const table = planType === "coin" ? "plans_coin" : "plans_real"
-  return await getOne(`SELECT * FROM ${table} WHERE id = ?`, [planId])
-}
-
-function getPrice(planType, plan) {
-  return planType === "coin" ? plan.coin_price : plan.price
-}
-
 // Auto-renewal always uses renewal_price for coin plans
-function getRenewalPrice(planType, plan) {
-  if (planType === "coin") return plan.renewal_price ?? plan.coin_price
-  return plan.price
-}
-
-function getBalanceField(planType) {
-  return planType === "coin" ? "coins" : "balance"
-}
+// (re-exported for backward compat with servers.js getLimits import)
 
 export function getLimits(plan) {
   // Convert GB to MB for Pterodactyl (plan.ram and plan.storage are in GB)
@@ -126,6 +112,16 @@ export function startExpiryCron() {
       await processGraceExpired()
     } catch (err) {
       console.error("[CRON] Expiry cron fatal error:", err.message)
+    }
+  })
+
+  // Run PRAGMA optimize daily at 3 AM — keeps SQLite query planner statistics fresh.
+  cron.schedule("0 3 * * *", () => {
+    try {
+      db.pragma("optimize")
+      console.log("[CRON] ✓ PRAGMA optimize executed")
+    } catch (err) {
+      console.error("[CRON] PRAGMA optimize error:", err.message)
     }
   })
 }
